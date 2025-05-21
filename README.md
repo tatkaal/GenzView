@@ -1,5 +1,7 @@
 # GenzView™ Design Reasoning Document
-*Simulating & Shaping Gen-Z Perception of Cosmetic Packaging*  
+*Simulating & Shaping Gen-Z Perception of Cosmetic Packaging* 
+
+*Author: Sujan Adhikari*
 
 ## Please go to [inference.pdf](inference.pdf), to view the runtime app flow
 
