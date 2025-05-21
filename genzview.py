@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-app.py – GenzView™ v2.3  •  Gen-Z Cosmetic-Packaging Perception Studio
+genzview.py – GenzView™ v2.3  •  Gen-Z Cosmetic-Packaging Perception Studio
 =====================================================================
 v2.3 Patch list
 --------------
@@ -14,10 +14,6 @@ v2.3 Patch list
 • Variant prompt auto-injects `product_category` for *any* cosmetics type  
 • Logs unchanged (features, scores, deltas, paths)  
 
-Run example
------------
-python app.py assets/mock1.jpg --meta sample_metadata.json --use-ml \
-           --variants 3 --gen-source local
 """
 
 # ------------------------------------------------------------------ #
@@ -56,13 +52,13 @@ for d in [
 try:
     from openai import OpenAI
     # First try Streamlit secrets (cloud-safe), fallback to env
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     client_openai = OpenAI()
 except ImportError:
     client_openai, OPENAI_API_KEY = None, None
     logging.warning("⚠️ openai lib missing – OpenAI variants disabled.")
 
-STABILITY_API_KEY = os.getenv("STABILITY_API_KEY") or st.secrets.get("STABILITY_API_KEY")
+STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
 
 try:
     import torch
@@ -108,6 +104,10 @@ class PerceptionScores:
     def as_dict(self):
         return self.__dict__
 
+#helpers
+def clamp(val, lo, hi):
+    return max(lo, min(hi, val))
+
 # ------------------------------------------------------------------ #
 #  Core engine
 # ------------------------------------------------------------------ #
@@ -143,7 +143,7 @@ class GenzView:
         if _HAS_OCR:
             ocr_img, words = self._ocr_overlay(img_path)
 
-        scores = self._heuristic_score(feats, meta, words)
+        scores, _ = self._heuristic_score(feats, meta, words)
         if use_ml:
             for k, v in self._ml_delta(img_path).items():
                 setattr(scores, k, max(0, min(10, getattr(scores, k) + v)))
@@ -194,57 +194,76 @@ class GenzView:
         logging.info(f"    OCR overlay     ▶ {out} | {len(words)} words")
         return out, words
 
-    def _heuristic_score(self, f: Dict[str, Any],
-                         m: Dict[str, Any],
-                         w: List[str]):
+    def _heuristic_score(
+        self,
+        f: Dict[str, Any],
+        m: Dict[str, Any],
+        w: List[str]
+    ) -> Tuple[PerceptionScores, List[Tuple[str, int, str]]]:
+        """
+        Returns:
+          - PerceptionScores with aesthetic, trust, purchase, luxury
+          - contrib: a list of (rule, impact, targets) tuples
+        """
         logging.info("[3/8] Heuristic scoring…")
         s = PerceptionScores(aesthetic=5, trust=5, purchase=5, luxury=5)
-        # base rules
+        contrib: List[Tuple[str,int,str]] = []
+
+        def add(rule: str, amt: int, targets: List[str]):
+            # apply to the score object
+            for t in targets:
+                setattr(s, t, clamp(getattr(s, t) + amt, 0, 10))
+            contrib.append((rule, amt, ", ".join(targets)))
+
+        # --- Existing rules, but via add() ---
         if f["pastel_palette"]:
-            s.aesthetic += 2
+            add("Pastel palette", +2, ["aesthetic"])
         if f["has_glass"]:
-            s.luxury += 3
+            add("Glass bottle", +3, ["luxury"])
         if f["symmetry"] > .8:
-            s.aesthetic += 1
+            add("High symmetry", +1, ["aesthetic"])
         if f["text_edge_density"] > .15:
-            s.trust -= 1
-            s.aesthetic -= 1
+            add("Busy edges", -1, ["aesthetic", "trust"])
         if f["text_area_ratio"] > .03:
-            s.trust -= 1
-            s.aesthetic -= 1
-        # Gen-Z prefs
-        vals = {v.lower() for v in self.demo.values}
-        if "instagrammable" in vals and f["pastel_palette"]:
-            s.aesthetic += 1
-        if "minimalism" in vals and f["text_area_ratio"] < .02:
-            s.aesthetic += 1
-        # tone
+            add("Lots of text", -1, ["aesthetic", "trust"])
         tone = m.get("brand_tone", "").lower()
         if tone == "premium":
-            s.luxury += 1
+            add("Premium tone", +1, ["luxury"])
         elif tone == "playful":
-            s.aesthetic += 1
+            add("Playful tone", +1, ["aesthetic"])
         elif tone == "eco":
-            s.trust += 1
-        # OCR trust
-        brand = m.get("brand_name", "").lower()
-        if brand:
-            s.trust += 1 if brand in " ".join(w) else -1
-        good = ["vitamin", "hyaluronic", "organic", "glow", "clean", "spf"]
-        bad = ["paraben", "sulfate", "harsh"]
-        s.trust += sum(g in w for g in good) - sum(b in w for b in bad)
-        # pastel bonus/penalty
-        hls = cv2.cvtColor(
-            np.uint8([[f["dominant_color"]]]),
-            cv2.COLOR_BGR2HLS
-        )[0, 0]
-        s.aesthetic += 1 if hls[1] > 180 and hls[2] < 100 else -1
-        # composite purchase
-        s.purchase = np.clip((s.aesthetic + s.luxury + s.trust) / 3, 0, 10)
-        for k in s.as_dict():
-            setattr(s, k, max(0, min(10, getattr(s, k))))
+            add("Eco tone", +1, ["trust"])
+
+        # price influence
+        if "price_range" in m:
+            lo, hi = m["price_range"]
+            mid = (lo + hi) / 2
+            if mid >= 50:
+                add("High price range", +1, ["luxury", "trust"])
+            elif mid <= 20:
+                add("Budget price range", -1, ["luxury"])
+
+        # keywords
+        good_kw = ["vitamin","hyaluronic","organic","glow","clean","spf"]
+        bad_kw  = ["paraben","sulfate","harsh"]
+        add("Positive keywords", sum(wi in w for wi in good_kw), ["trust"])
+        add("Negative keywords", -sum(wi in w for wi in bad_kw), ["trust"])
+
+        # value alignment
+        vals = {v.lower() for v in self.demo.values}
+        if "instagrammable" in vals and f["pastel_palette"]:
+            add("Aligns with instagrammable", +1, ["aesthetic"])
+        if "minimalism" in vals and f["text_area_ratio"] < .02:
+            add("Aligns with minimalism", +1, ["aesthetic"])
+
+        # final purchase composite
+        s.purchase = round((s.aesthetic + s.luxury + s.trust) / 3, 2)
+        # clamp all
+        for k, v in s.as_dict().items():
+            setattr(s, k, max(0, min(10, v)))
+
         logging.info(f"    Heuristic scores ▶ {s.as_dict()}")
-        return s
+        return s, contrib
 
     def _ml_delta(self, path: str):
         if not _HAS_TORCH:
@@ -395,7 +414,8 @@ class GenzView:
         prompt: Optional[str] = None,
         strength: float = .75,
         source: str = "local",
-        negative_prompt: str = "no extra text or letters, watermark, blurry"
+        negative_prompt: str = "no extra text or letters, watermark, blurry",
+        quality: str = "low"
     ):
         if not prompt:
             prompt = self._variant_prompt()
@@ -489,8 +509,8 @@ class GenzView:
                     image=imgs,
                     prompt=prompt,
                     n=num,
-                    quality="low",
-                    size="auto"
+                    quality=quality,
+                    size="1024x1024"
                 )
             except Exception as e:
                 logging.warning("OpenAI edit failed: %s", e)
@@ -629,50 +649,50 @@ class GenzView:
         R = cv2.resize(R, (L.shape[1], L.shape[0]))
         return 1 - np.abs(L - R).mean() / 255
 
-# ------------------------------------------------------------------ #
-#  CLI
-# ------------------------------------------------------------------ #
-if __name__ == "__main__":
-    import argparse
-    import yaml
+# # ------------------------------------------------------------------ #
+# #  CLI
+# # ------------------------------------------------------------------ #
+# if __name__ == "__main__":
+#     import argparse
+#     import yaml
 
-    ap = argparse.ArgumentParser(description="GenzView v2.3")
-    ap.add_argument("image")
-    ap.add_argument("--meta")
-    ap.add_argument("--yaml")
-    ap.add_argument("--variants", type=int, default=0)
-    ap.add_argument("--use-ml", action="store_true")
-    ap.add_argument(
-        "--gen-source",
-        choices=["local", "api", "openai"],
-        default="local"
-    )
-    args = ap.parse_args()
+#     ap = argparse.ArgumentParser(description="GenzView v2.3")
+#     ap.add_argument("image")
+#     ap.add_argument("--meta")
+#     ap.add_argument("--yaml")
+#     ap.add_argument("--variants", type=int, default=0)
+#     ap.add_argument("--use-ml", action="store_true")
+#     ap.add_argument(
+#         "--gen-source",
+#         choices=["local", "api", "openai"],
+#         default="local"
+#     )
+#     args = ap.parse_args()
 
-    meta = {}
-    if args.meta and os.path.exists(args.meta):
-        with open(args.meta) as f:
-            meta = json.load(f)
+#     meta = {}
+#     if args.meta and os.path.exists(args.meta):
+#         with open(args.meta) as f:
+#             meta = json.load(f)
 
-    cfg = {}
-    if args.yaml and os.path.exists(args.yaml):
-        with open(args.yaml) as f:
-            cfg = yaml.safe_load(f)
+#     cfg = {}
+#     if args.yaml and os.path.exists(args.yaml):
+#         with open(args.yaml) as f:
+#             cfg = yaml.safe_load(f)
 
-    tl = GenzView()
-    sc, rec, heat = tl.run(args.image, meta, use_ml=args.use_ml)
+#     tl = GenzView()
+#     sc, rec, heat = tl.run(args.image, meta, use_ml=args.use_ml)
 
-    print("\n➜ Perception Scores")
-    for k, v in sc.items():
-        print(f"  {k:<11}: {v:.2f}")
+#     print("\n➜ Perception Scores")
+#     for k, v in sc.items():
+#         print(f"  {k:<11}: {v:.2f}")
 
-    print("\n➜ Recommendation\n " + rec)
-    print("\n➜ Heat-map ➜", heat)
+#     print("\n➜ Recommendation\n " + rec)
+#     print("\n➜ Heat-map ➜", heat)
 
-    if args.variants:
-        vp = cfg.get("variant_prompt") if cfg else None
-        outs = tl.generate_variants(
-            args.image, args.variants,
-            prompt=vp, source=args.gen_source
-        )
-        print("➜ Variants  ➜", outs)
+#     if args.variants:
+#         vp = cfg.get("variant_prompt") if cfg else None
+#         outs = tl.generate_variants(
+#             args.image, args.variants,
+#             prompt=vp, source=args.gen_source, quality="low"
+#         )
+#         print("➜ Variants  ➜", outs)
