@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # ================================================================
-#  🎨  GenzView Streamlit Studio – v2.2 (refactored, scrollable)
+#  🎨  GenzView Streamlit Studio
 # ================================================================
 
 import os

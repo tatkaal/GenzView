@@ -1,18 +1,6 @@
 #!/usr/bin/env python3
 """
-genzview.py – GenzView™ v2.3  •  Gen-Z Cosmetic-Packaging Perception Studio
-=====================================================================
-v2.3 Patch list
---------------
-• Amber/coloured-glass detection fixed (works for any product_category)  
-• Heat-map   – keeps original background, adds correct 50-px legend bar,
-  OCR legibility + symmetry sub-maps weighted & normalised individually  
-• ML aesthetic delta clamped ±2 to avoid zero-bombing  
-• Trust scoring re-balanced: good/bad keywords ±1, dense-text penalty
-  softened for tall/narrow labels  
-• Prompt guard (“no extra text”) now applied to **all** variant back-ends  
-• Variant prompt auto-injects `product_category` for *any* cosmetics type  
-• Logs unchanged (features, scores, deltas, paths)  
+genzview.py – GenzView™  •  Gen-Z Cosmetic-Packaging Perception Studio
 
 """
 
@@ -652,47 +640,47 @@ class GenzView:
 # # ------------------------------------------------------------------ #
 # #  CLI
 # # ------------------------------------------------------------------ #
-# if __name__ == "__main__":
-#     import argparse
-#     import yaml
+if __name__ == "__main__":
+    import argparse
+    import yaml
 
-#     ap = argparse.ArgumentParser(description="GenzView v2.3")
-#     ap.add_argument("image")
-#     ap.add_argument("--meta")
-#     ap.add_argument("--yaml")
-#     ap.add_argument("--variants", type=int, default=0)
-#     ap.add_argument("--use-ml", action="store_true")
-#     ap.add_argument(
-#         "--gen-source",
-#         choices=["local", "api", "openai"],
-#         default="local"
-#     )
-#     args = ap.parse_args()
+    ap = argparse.ArgumentParser(description="GenzView v2.3")
+    ap.add_argument("image")
+    ap.add_argument("--meta")
+    ap.add_argument("--yaml")
+    ap.add_argument("--variants", type=int, default=0)
+    ap.add_argument("--use-ml", action="store_true")
+    ap.add_argument(
+        "--gen-source",
+        choices=["local", "api", "openai"],
+        default="local"
+    )
+    args = ap.parse_args()
 
-#     meta = {}
-#     if args.meta and os.path.exists(args.meta):
-#         with open(args.meta) as f:
-#             meta = json.load(f)
+    meta = {}
+    if args.meta and os.path.exists(args.meta):
+        with open(args.meta) as f:
+            meta = json.load(f)
 
-#     cfg = {}
-#     if args.yaml and os.path.exists(args.yaml):
-#         with open(args.yaml) as f:
-#             cfg = yaml.safe_load(f)
+    cfg = {}
+    if args.yaml and os.path.exists(args.yaml):
+        with open(args.yaml) as f:
+            cfg = yaml.safe_load(f)
 
-#     tl = GenzView()
-#     sc, rec, heat = tl.run(args.image, meta, use_ml=args.use_ml)
+    tl = GenzView()
+    sc, rec, heat = tl.run(args.image, meta, use_ml=args.use_ml)
 
-#     print("\n➜ Perception Scores")
-#     for k, v in sc.items():
-#         print(f"  {k:<11}: {v:.2f}")
+    print("\n➜ Perception Scores")
+    for k, v in sc.items():
+        print(f"  {k:<11}: {v:.2f}")
 
-#     print("\n➜ Recommendation\n " + rec)
-#     print("\n➜ Heat-map ➜", heat)
+    print("\n➜ Recommendation\n " + rec)
+    print("\n➜ Heat-map ➜", heat)
 
-#     if args.variants:
-#         vp = cfg.get("variant_prompt") if cfg else None
-#         outs = tl.generate_variants(
-#             args.image, args.variants,
-#             prompt=vp, source=args.gen_source, quality="low"
-#         )
-#         print("➜ Variants  ➜", outs)
+    if args.variants:
+        vp = cfg.get("variant_prompt") if cfg else None
+        outs = tl.generate_variants(
+            args.image, args.variants,
+            prompt=vp, source=args.gen_source, quality="low"
+        )
+        print("➜ Variants  ➜", outs)
