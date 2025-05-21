@@ -33,6 +33,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Dict, Any, Tuple, List, Optional
 from dotenv import load_dotenv
+import streamlit as st
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -54,13 +55,14 @@ for d in [
 # ------------------------------------------------------------------ #
 try:
     from openai import OpenAI
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+    # First try Streamlit secrets (cloud-safe), fallback to env
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY")
     client_openai = OpenAI()
 except ImportError:
     client_openai, OPENAI_API_KEY = None, None
     logging.warning("⚠️ openai lib missing – OpenAI variants disabled.")
 
-STABILITY_API_KEY = os.getenv("STABILITY_API_KEY")
+STABILITY_API_KEY = os.getenv("STABILITY_API_KEY") or st.secrets.get("STABILITY_API_KEY")
 
 try:
     import torch
